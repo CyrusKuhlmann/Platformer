@@ -1,0 +1,317 @@
+import pygame
+import time
+import numpy as np
+import heapq
+from grid import Grid, SKY_BLUE
+
+def detect_collisions(rect, objects):
+    collisions = []
+    for obj in objects:
+        if rect.colliderect(obj):
+            collisions.append(obj)
+    return collisions
+
+
+class Bullet(pygame.sprite.Sprite):
+    def __init__(self, x, y, speed):
+        super().__init__()
+        self.image = pygame.Surface((10, 10))
+        self.image.fill((255, 0, 0))  # Red color for the bullet
+        self.rect = self.image.get_rect(center=(x, y))
+        self.speed = speed
+
+class Player:
+    def __init__(self, level):
+        self.stand = pygame.image.load("Game/platformerheropack/dark/backpack/backpack0000.png")
+        self.run = [pygame.image.load(f"Game/platformerheropack/dark/backpack/backpack00{i:02}.png") for i in range(8, 15)]
+        self.jump = [pygame.image.load(f"Game/platformerheropack/dark/backpack/backpack00{i:02}.png") for i in range(32, 40)]
+        self.frame = 1
+        self.width = 115
+        self.height = 77
+        self.direction = "right"
+        self.speed = [0, 0]
+        self.rect = pygame.Rect(0, 768 - 64 - 90, 30, 63)
+        self.can_jump = False
+        self.level = level
+        self.ground = -1
+        self.touched_block_types = set()
+        self.bullets = pygame.sprite.Group()  # Group to hold bullets
+        self.traveled = 0
+    def set_enemy(self, enemy):
+        self.enemy = enemy
+
+    def draw(self, screen):
+        frame = self.stand if self.speed[0] == 0 else self.run[self.frame]
+        image = pygame.transform.scale(frame, (self.width, self.height))
+        flipped_image = pygame.transform.flip(image, True, False)
+
+        if self.direction == "right":
+            screen.blit(image, self.drawbox())
+        else:
+            screen.blit(flipped_image, self.drawbox())
+
+        # Draw bullets
+        for bullet in self.bullets:
+            screen.blit(bullet.image, bullet.rect)
+
+    def drawbox(self):
+        return pygame.Rect(
+            self.rect.x - 40,
+            self.rect.y - 15,
+            self.width,
+            self.height,
+        )
+
+    def move(self):
+        objects = self.level.tiles()
+
+        # Check for bullet collisions with tiles
+        for bullet in self.bullets:
+            bullet.rect.x += bullet.speed
+            collisions = detect_collisions(bullet.rect, objects)
+            for tile in collisions:
+                if bullet.speed > 0:
+                    bullet.rect.right = tile.left
+                if bullet.speed < 0:
+                    bullet.rect.left = tile.right
+                bullet.kill()
+
+        # Apply gravity
+        self.speed[1] += 0.15
+
+ # Check left-right collisions
+        self.rect.x += self.speed[0]
+        collisions = detect_collisions(self.rect, objects)
+        for tile in collisions:
+            if self.speed[0] > 0:
+                self.rect.right = tile.left
+            if self.speed[0] < 0:
+                self.rect.left = tile.right
+
+            tile_id = self.level.get_tile(tile.x, tile.y)
+            # Check if this block type (1 or 2) has been touched before
+            if tile_id in {1, 2} and tile_id not in self.touched_block_types:
+                self.touched_block_types.add(tile_id)  # Mark block type as touched
+                if tile_id == 1:
+                    self.level.grid = np.load("Game/level0.npy")
+                    self.enemy.path = []
+                    self.enemy.rect = pygame.Rect(210, 768 - 64 - 90, 57, 63)
+                if tile_id == 2:
+                    self.level.grid = np.load("Game/level2.npy")
+                    self.enemy.path = []
+                    self.enemy.rect = pygame.Rect(1024 - 65, 0, 57, 63)
+                    
+            if tile_id == 105:
+                self.level.grid = np.load("Game/gameover.npy")
+
+        # Check up-down collisions
+        self.rect.y += self.speed[1]
+        collisions = detect_collisions(self.rect, objects)
+        for tile in collisions:
+            if self.speed[1] > 0:
+                self.rect.bottom = tile.top
+                self.speed[1] = 0
+                self.can_jump = True
+                self.ground = self.rect.y
+            if self.speed[1] < 0:
+                self.rect.top = tile.bottom
+                self.speed[1] = 0
+
+            tile_id = self.level.get_tile(tile.x, tile.y)
+            # Check if this block type (1 or 2) has been touched before
+            if tile_id in {1, 2} and tile_id not in self.touched_block_types:
+                self.touched_block_types.add(tile_id)  # Mark block type as touched
+                if tile_id == 1:
+                    self.level.grid = np.load("Game/level0.npy")
+                    self.enemy.path = []
+                    self.enemy.rect = pygame.Rect(210, 768 - 64 - 90, 57, 63)
+                elif tile_id == 2:
+                    self.level.grid = np.load("Game/level2.npy")
+                    self.enemy.path = []
+                    self.enemy.rect = pygame.Rect(1024 - 65, 0, 57, 63)
+
+            if tile_id == 105:
+                self.level.grid = np.load("Game/gameover.npy")
+
+        if self.can_jump and self.rect.y != self.ground:
+            self.can_jump = False
+
+        # Keep player on screen
+        if self.rect.right > self.level.width:
+            self.rect.right = self.level.width
+        if self.rect.left < 0:
+            self.rect.left = 0
+        if self.rect.top < 0:
+            self.speed[1] = 0
+            self.rect.top = 0
+        if self.rect.bottom > self.level.height:
+            self.rect.bottom = self.level.height
+
+        # Update animation frame
+        if self.speed[0] == 0:
+            self.frame = 1
+            self.traveled = 0
+        else:
+            self.traveled += abs(self.speed[0])
+            if self.traveled >= 10:  # Change frame every 10 pixels traveled
+                self.traveled = 0
+                self.frame = (self.frame + 1) % len(self.run)
+
+class Enemy:
+    def __init__(self, level, player):
+        bigplayer = pygame.image.load("Game/enemy.png")
+        self.width = 90
+        self.height = 90
+        self.direction = "right"
+        self.image = pygame.transform.scale(bigplayer, (self.width, self.height))
+        self.flipped_image = pygame.transform.flip(self.image, True, False)
+        self.speed = [0, 0]
+        self.rect = pygame.Rect(300, 768 - 64 - 90, 57, 63)
+        self.can_jump = False
+        self.level = level
+        self.player = player
+        self.path = []  # Store the path to be visualized
+
+    def draw(self, screen):
+        if self.direction == "right":
+            screen.blit(self.image, self.drawbox())
+        else:
+            screen.blit(self.flipped_image, self.drawbox())
+
+        # Draw path visualization
+        for step in self.path:
+            x, y = step[1] * 64, step[0] * 64
+            pygame.draw.rect(screen, (255, 0, 0), (x, y, 64, 64), 3)
+
+    def drawbox(self):
+        return pygame.Rect(
+            self.rect.x - 15,
+            self.rect.y - 15,
+            self.width,
+            self.height,
+        )
+
+    def a_star_path(self, start, goal):
+        """A* pathfinding for tiles with ID -1 only."""
+        def heuristic(a, b):
+            return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+        open_set = []
+        heapq.heappush(open_set, (0, start))
+        came_from = {}
+        g_score = {start: 0}
+        f_score = {start: heuristic(start, goal)}
+
+        while open_set:
+            _, current = heapq.heappop(open_set)
+
+            if current == goal:
+                path = []
+                while current in came_from:
+                    path.append(current)
+                    current = came_from[current]
+                path.reverse()
+                return path  # Return path from start to goal
+
+            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:  # Up, Down, Left, Right
+                neighbor = (current[0] + dx, current[1] + dy)
+
+                # Check if neighbor is within grid bounds
+                if 0 <= neighbor[0] < self.level.rows and 0 <= neighbor[1] < self.level.cols:
+                    tile_id = self.level.get_tile(neighbor[1] * 64, neighbor[0] * 64)
+
+                    if tile_id == -1:  # Only passable tiles with ID -1
+                        tentative_g_score = g_score[current] + 1
+
+                        if tentative_g_score < g_score.get(neighbor, float("inf")):
+                            came_from[neighbor] = current
+                            g_score[neighbor] = tentative_g_score
+                            f_score[neighbor] = tentative_g_score + heuristic(neighbor, goal)
+                            heapq.heappush(open_set, (f_score[neighbor], neighbor))
+        return []  # Return empty path if no path is found
+
+
+    def move(self, player):
+        start = self.level.get_tile_index((self.rect.x, self.rect.y))
+        goal = self.level.get_tile_index((player.rect.x, player.rect.y))
+        self.path = self.a_star_path(start, goal)
+
+        if self.path:
+            # Move smoothly along the path toward the next tile
+            next_step = self.path[0]
+            next_x, next_y = next_step[1] * 64 + 32, next_step[0] * 64 + 32
+
+            if abs(next_x - self.rect.centerx) > 1:
+                self.speed[0] = 1.5 if next_x > self.rect.centerx else -1.5
+            else:
+                self.speed[0] = 0
+
+            if abs(next_y - self.rect.centery) > 1:
+                self.speed[1] = 1.5 if next_y > self.rect.centery else -1.5
+            else:
+                self.speed[1] = 0
+
+            # Apply the speed to move toward the next tile smoothly
+            self.rect.x += int(self.speed[0])
+            self.rect.y += int(self.speed[1])
+
+            # If we reach the center of the next step, remove it from the path
+            if self.rect.collidepoint(next_x, next_y):
+                self.path.pop(0)
+
+        # Handle collisions with player
+        if self.rect.colliderect(player.rect):
+            player.level.grid = np.load("Game/gameover.npy")
+            player.rect = pygame.Rect(0, 768 - 64 - 90, 57, 63)
+            player.direction = "right"
+
+
+def main():
+    pygame.init()
+    level = Grid(bg_color=SKY_BLUE)
+    level.grid = np.load("Game/level1.npy")
+    screen = pygame.display.set_mode((level.width, level.height))
+    clock = pygame.time.Clock()
+    player = Player(level)
+    enemy = Enemy(level, player)
+    player.set_enemy(enemy)
+    running = True
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+                break
+            if (
+                event.type == pygame.KEYDOWN
+                and event.key == pygame.K_UP
+                and player.can_jump
+            ):
+                player.speed[1] = -6.3
+                player.can_jump = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    bullet_speed = 5 if player.direction == "right" else -5
+                    bullet = Bullet(player.rect.centerx, player.rect.centery, bullet_speed)
+                    player.bullets.add(bullet)  # Add the bullet to the bullets group
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_RIGHT]:
+            player.direction = "right"
+            player.speed[0] = 2.7
+        elif keys[pygame.K_LEFT]:
+            player.direction = "left"
+            player.speed[0] = -2.7
+        else:
+            player.speed[0] = 0
+
+        level.draw(screen)
+        player.draw(screen)
+        enemy.draw(screen)
+        player.move()
+        enemy.move(player)
+        pygame.display.flip()
+        clock.tick(60)
+
+    pygame.quit()
+
+if __name__ == "__main__":
+    main()
