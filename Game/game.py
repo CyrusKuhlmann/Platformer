@@ -15,17 +15,23 @@ def detect_collisions(rect, objects):
 class Bullet(pygame.sprite.Sprite):
     def __init__(self, x, y, speed):
         super().__init__()
-        self.image = pygame.Surface((10, 10))
-        self.image.fill((255, 0, 0))  # Red color for the bullet
+        self.original_image = pygame.image.load("Game/bullet.png").convert_alpha()  # Load the original bullet image
+        self.image = pygame.transform.scale(self.original_image, (50, 50))  # Scale the image
+        if speed < 0:  # Flip the image if the bullet is moving left
+            self.image = pygame.transform.flip(self.image, True, False)
         self.rect = self.image.get_rect(center=(x, y))
         self.speed = speed
 
 class Player:
     def __init__(self, level):
-        self.stand = pygame.image.load("Game/platformerheropack/dark/backpack/backpack0000.png")
-        self.run = [pygame.image.load(f"Game/platformerheropack/dark/backpack/backpack00{i:02}.png") for i in range(8, 15)]
-        self.jump = [pygame.image.load(f"Game/platformerheropack/dark/backpack/backpack00{i:02}.png") for i in range(32, 40)]
+        self.stand = pygame.image.load("Game/platformerheropack/medium/soldier/soldier0000.png")
+        self.run = [pygame.image.load(f"Game/platformerheropack/medium/soldier/soldier00{i:02}.png") for i in range(8, 16)]
+        self.jump_up = [pygame.image.load(f"Game/platformerheropack/medium/soldier/soldier00{i:02}.png") for i in range(32, 37)]
+        self.jump_down = [pygame.image.load(f"Game/platformerheropack/medium/soldier/soldier00{i:02}.png") for i in [37, 38, 39, 40, 39, 38, 37]]
+        self.landing_speed = 0
         self.frame = 1
+        self.jump_frame = 0
+        self.jump_down_frame = 0
         self.width = 115
         self.height = 77
         self.direction = "right"
@@ -37,11 +43,32 @@ class Player:
         self.touched_block_types = set()
         self.bullets = pygame.sprite.Group()  # Group to hold bullets
         self.traveled = 0
+        self.clock = 0
     def set_enemy(self, enemy):
         self.enemy = enemy
 
-    def draw(self, screen):
-        frame = self.stand if self.speed[0] == 0 else self.run[self.frame]
+    def draw(self, screen): 
+        self.clock += 1
+        if self.speed[0] == 0:
+            frame = self.stand
+        else:
+            frame = self.run[self.frame]
+        if self.can_jump == False:
+            self.landing_speed = self.speed[1]
+            if self.jump_frame < len(self.jump_up):  # Play jump animation frames
+                frame = self.jump_up[self.jump_frame]
+                if self.clock % 6 == 0:
+                    self.jump_frame += 1
+            else:  # Hold the last frame of the jump animation
+                frame = self.jump_up[len(self.jump_up) - 1]
+        elif self.jump_frame > 0:
+            if self.jump_down_frame < len(self.jump_down) and self.landing_speed > 5:
+                frame = self.jump_down[self.jump_down_frame]
+                if self.clock % 2 == 0:
+                    self.jump_down_frame += 1
+            else:
+                self.jump_frame = 0  # Reset jump frame when not jumping
+                self.jump_down_frame = 0  # Reset jump down frame when not jumping
         image = pygame.transform.scale(frame, (self.width, self.height))
         flipped_image = pygame.transform.flip(image, True, False)
 
@@ -148,11 +175,11 @@ class Player:
             self.rect.bottom = self.level.height
 
         # Update animation frame
-        if self.speed[0] == 0:
+        if self.speed[0] == 0 and self.speed[1] == 0:
             self.frame = 1
             self.traveled = 0
         else:
-            self.traveled += abs(self.speed[0])
+            self.traveled += abs(self.speed[0]) + abs(self.speed[1])
             if self.traveled >= 10:  # Change frame every 10 pixels traveled
                 self.traveled = 0
                 self.frame = (self.frame + 1) % len(self.run)
@@ -178,10 +205,10 @@ class Enemy:
         else:
             screen.blit(self.flipped_image, self.drawbox())
 
-        # Draw path visualization
-        for step in self.path:
-            x, y = step[1] * 64, step[0] * 64
-            pygame.draw.rect(screen, (255, 0, 0), (x, y, 64, 64), 3)
+        # # Draw path visualization
+        # for step in self.path:
+        #     x, y = step[1] * 64, step[0] * 64
+        #     pygame.draw.rect(screen, (255, 0, 0), (x, y, 64, 64), 3)
 
     def drawbox(self):
         return pygame.Rect(
@@ -192,6 +219,8 @@ class Enemy:
         )
 
     def a_star_path(self, start, goal):
+        if start == goal:
+            return [goal]
         """A* pathfinding for tiles with ID -1 only."""
         def heuristic(a, b):
             return abs(a[0] - b[0]) + abs(a[1] - b[1])
@@ -258,6 +287,7 @@ class Enemy:
             # If we reach the center of the next step, remove it from the path
             if self.rect.collidepoint(next_x, next_y):
                 self.path.pop(0)
+
 
         # Handle collisions with player
         if self.rect.colliderect(player.rect):
