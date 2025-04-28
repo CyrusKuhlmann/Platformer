@@ -44,6 +44,8 @@ class Player:
         self.bullets = pygame.sprite.Group()  # Group to hold bullets
         self.traveled = 0
         self.clock = 0
+        self.diamonds = 0
+        self.slip_time = 0
     def set_enemy(self, enemy):
         self.enemy = enemy
 
@@ -121,15 +123,23 @@ class Player:
                 self.touched_block_types.add(tile_id)  # Mark block type as touched
                 if tile_id == 1:
                     self.level.grid = np.load("Game/level0.npy")
+                    self.enemy = Enemy(self.level, self)
                     self.enemy.path = []
                     self.enemy.rect = pygame.Rect(210, 768 - 64 - 90, 57, 63)
                 if tile_id == 2:
                     self.level.grid = np.load("Game/level2.npy")
+                    self.enemy = Enemy(self.level, self)
                     self.enemy.path = []
                     self.enemy.rect = pygame.Rect(1024 - 65, 0, 57, 63)
                     
             if tile_id == 105:
                 self.level.grid = np.load("Game/gameover.npy")
+
+            if tile_id == 96:
+                self.diamonds += 1
+                self.level.grid[tile.y // 64][tile.x // 64] = -1
+
+
 
         # Check up-down collisions
         self.rect.y += self.speed[1]
@@ -160,6 +170,10 @@ class Player:
             if tile_id == 105:
                 self.level.grid = np.load("Game/gameover.npy")
 
+            if tile_id == 96:
+                self.diamonds += 1
+                self.level.grid[tile.y // 64][tile.x // 64] = -1
+
         if self.can_jump and self.rect.y != self.ground:
             self.can_jump = False
 
@@ -186,24 +200,36 @@ class Player:
 
 class Enemy:
     def __init__(self, level, player):
-        bigplayer = pygame.image.load("Game/enemy.png")
+        bigplayer = pygame.image.load("Game/Ghost.png")
         self.width = 90
-        self.height = 90
+        self.height = 71.43
         self.direction = "right"
         self.image = pygame.transform.scale(bigplayer, (self.width, self.height))
         self.flipped_image = pygame.transform.flip(self.image, True, False)
+        self.red_image = pygame.transform.scale(bigplayer, (self.width, self.height))
+        self.red_image.fill((255, 0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        self.flipped_red_image = pygame.transform.flip(self.red_image, True, False)
         self.speed = [0, 0]
         self.rect = pygame.Rect(300, 768 - 64 - 90, 57, 63)
         self.can_jump = False
         self.level = level
         self.player = player
         self.path = []  # Store the path to be visualized
+        self.health = 10  # Health points for the enemy
+        self.hit_timer = 0
 
     def draw(self, screen):
-        if self.direction == "right":
-            screen.blit(self.image, self.drawbox())
-        else:
-            screen.blit(self.flipped_image, self.drawbox())
+        if pygame.time.get_ticks() - self.hit_timer < 100 and self.health > 0:  # 100 ms = 0.1 seconds
+            if self.direction == "right":
+                screen.blit(self.red_image, self.drawbox())
+            else:
+                flipped_red_image = pygame.transform.flip(self.red_image, True, False)
+                screen.blit(flipped_red_image, self.drawbox())
+        elif self.health > 0:
+            if self.direction == "right":
+                screen.blit(self.image, self.drawbox())
+            else:
+                screen.blit(self.flipped_image, self.drawbox())
 
         # # Draw path visualization
         # for step in self.path:
@@ -303,8 +329,8 @@ def main():
     screen = pygame.display.set_mode((level.width, level.height))
     clock = pygame.time.Clock()
     player = Player(level)
-    enemy = Enemy(level, player)
-    player.set_enemy(enemy)
+    player.enemy = Enemy(level, player)
+    font = pygame.font.Font(None, 36)  # Font for diamond count
     running = True
     while running:
         for event in pygame.event.get():
@@ -323,23 +349,48 @@ def main():
                     bullet_speed = 5 if player.direction == "right" else -5
                     bullet = Bullet(player.rect.centerx, player.rect.centery, bullet_speed)
                     player.bullets.add(bullet)  # Add the bullet to the bullets group
+            if player.enemy and player.enemy.health <= 0:
+                player.enemy = None
+                player.set_enemy(None)
+                break
         keys = pygame.key.get_pressed()
         if keys[pygame.K_RIGHT]:
             player.direction = "right"
             player.speed[0] = 2.7
+
         elif keys[pygame.K_LEFT]:
             player.direction = "left"
             player.speed[0] = -2.7
+
         else:
             player.speed[0] = 0
 
+
         level.draw(screen)
         player.draw(screen)
-        enemy.draw(screen)
+        if player.enemy:
+            # Draw the enemy only if it exists
+            player.enemy.draw(screen)
+
+
+        #check for bullet collisions with the enemy
+        for bullet in player.bullets:
+            if player.enemy and bullet.rect.colliderect(player.enemy.rect):  # Check if bullet hits the enemy
+                player.enemy.health -= 1  # Decrease enemy health
+                player.enemy.hit_timer = pygame.time.get_ticks()
+                bullet.kill()  # Remove the bullet
+
+
+                # Render the diamond count text
+        diamond_text = font.render(f"Diamonds: {player.diamonds}", True, (0, 0, 0))  # White text
+        text_rect = diamond_text.get_rect(topright=(level.width - 10, 10))  # Position in the upper-right corner
+        screen.blit(diamond_text, text_rect)
         player.move()
-        enemy.move(player)
+        if player.enemy:
+            player.enemy.move(player)
         pygame.display.flip()
         clock.tick(60)
+
 
     pygame.quit()
 
