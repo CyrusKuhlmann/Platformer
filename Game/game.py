@@ -51,7 +51,7 @@ class Player:
 
     def draw(self, screen): 
         self.clock += 1
-        if self.speed[0] == 0:
+        if self.speed[0] == 0 or self.slip_time > 0 and self.slip_time < 100:
             frame = self.stand
         else:
             frame = self.run[self.frame]
@@ -357,13 +357,28 @@ def main():
         if keys[pygame.K_RIGHT]:
             player.direction = "right"
             player.speed[0] = 2.7
+            r, c = player.level.get_tile_index((player.rect.x, player.rect.y))
+            tile_id = player.level.grid[r+1][c]
+            if tile_id == 95:
+                player.slip_time = 100
 
         elif keys[pygame.K_LEFT]:
             player.direction = "left"
             player.speed[0] = -2.7
+            # get the id of the tile directly below the player
+            r, c = player.level.get_tile_index((player.rect.x, player.rect.y))
+            tile_id = player.level.grid[r+1][c]
+            if tile_id == 95:
+                player.slip_time = 100
+
 
         else:
-            player.speed[0] = 0
+            if player.slip_time > 0:
+                player.slip_time -= 1
+                player.speed[0] *= 0.96  # Slow down the player gradually
+            else:
+                player.speed[0] = 0
+
 
 
         level.draw(screen)
