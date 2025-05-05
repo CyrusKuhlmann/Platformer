@@ -7,7 +7,7 @@ SKY_BLUE = (130, 186, 223)
 
 
 class Grid:
-    def __init__(self, rows=12, cols=16, bg_color=BLACK):
+    def __init__(self, rows=24, cols=32, bg_color=BLACK):
         self.rows = rows
         self.cols = cols
         self.bg_color = bg_color
@@ -41,7 +41,7 @@ class Grid:
                     screen.blit(TILES[tile_index], (x, y))
 
     def get_tile_index(self, pos):
-        return pos[1] // 64, pos[0] // 64
+        return pos[1] // TILE_SIZE, pos[0] // TILE_SIZE
 
     def get_tile(self, x, y):
         r, c = self.get_tile_index((x, y))

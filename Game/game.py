@@ -3,6 +3,7 @@ import time
 import numpy as np
 import heapq
 from grid import Grid, SKY_BLUE
+from sprites import TILES, TILE_SIZE
 
 def detect_collisions(rect, objects):
     collisions = []
@@ -28,15 +29,17 @@ class Player:
         self.run = [pygame.image.load(f"Game/platformerheropack/medium/soldier/soldier00{i:02}.png") for i in range(8, 16)]
         self.jump_up = [pygame.image.load(f"Game/platformerheropack/medium/soldier/soldier00{i:02}.png") for i in range(32, 37)]
         self.jump_down = [pygame.image.load(f"Game/platformerheropack/medium/soldier/soldier00{i:02}.png") for i in [37, 38, 39, 40, 39, 38, 37]]
+        self.crouch = [pygame.image.load(f"Game/platformerheropack/medium/soldier/soldier00{i:02}.png") for i in range(2, 5)]
         self.landing_speed = 0
         self.frame = 1
         self.jump_frame = 0
         self.jump_down_frame = 0
+        self.crouch_frame = 1
         self.width = 115
         self.height = 77
         self.direction = "right"
         self.speed = [0, 0]
-        self.rect = pygame.Rect(0, 768 - 64 - 90, 30, 63)
+        self.rect = pygame.Rect(0, 768 - TILE_SIZE - 90, 30, 63)
         self.can_jump = False
         self.level = level
         self.ground = -1
@@ -46,6 +49,10 @@ class Player:
         self.clock = 0
         self.diamonds = 0
         self.slip_time = 0
+        self.ammo = 10
+        self.crouching = False
+        self.crouch_timer = 8
+        self.flashing_timer = 0
     def set_enemy(self, enemy):
         self.enemy = enemy
 
@@ -71,8 +78,32 @@ class Player:
             else:
                 self.jump_frame = 0  # Reset jump frame when not jumping
                 self.jump_down_frame = 0  # Reset jump down frame when not jumping
+
+        if self.crouching and self.speed[0] == 0:
+            frame = self.crouch[self.crouch_frame]
+            if self.clock % 6 == 0:
+                self.crouch_frame += 1
+                if self.crouch_frame >= len(self.crouch) - 1:
+                    self.crouch_frame = len(self.crouch) - 1
+                    self.crouch_timer -= 1
+                    if self.crouch_timer <= 0:
+                        self.flashing_timer = 90
+
+        else:
+            self.crouch_frame = 0
+            self.crouch_timer = 8
+
+
         image = pygame.transform.scale(frame, (self.width, self.height))
         flipped_image = pygame.transform.flip(image, True, False)
+
+        if self.clock % 6 == 0 and self.flashing_timer > 0:
+            image.fill((255, 255, 255, 10), special_flags=pygame.BLEND_RGBA_MULT)
+            flipped_image.fill((255, 255, 255, 10), special_flags=pygame.BLEND_RGBA_MULT)
+            
+
+
+
 
         if self.direction == "right":
             screen.blit(image, self.drawbox())
@@ -121,23 +152,29 @@ class Player:
             # Check if this block type (1 or 2) has been touched before
             if tile_id in {1, 2} and tile_id not in self.touched_block_types:
                 self.touched_block_types.add(tile_id)  # Mark block type as touched
-                if tile_id == 1:
+                if tile_id == 0:
                     self.level.grid = np.load("Game/level0.npy")
                     self.enemy = Enemy(self.level, self)
                     self.enemy.path = []
-                    self.enemy.rect = pygame.Rect(210, 768 - 64 - 90, 57, 63)
+                    self.enemy.rect = pygame.Rect(210, 768 - TILE_SIZE - 90, 57, 63)
+                    self.ammo += 5
                 if tile_id == 2:
                     self.level.grid = np.load("Game/level2.npy")
                     self.enemy = Enemy(self.level, self)
                     self.enemy.path = []
                     self.enemy.rect = pygame.Rect(1024 - 65, 0, 57, 63)
+                    self.ammo += 5
                     
             if tile_id == 105:
                 self.level.grid = np.load("Game/gameover.npy")
 
             if tile_id == 96:
                 self.diamonds += 1
-                self.level.grid[tile.y // 64][tile.x // 64] = -1
+                self.level.grid[tile.y // TILE_SIZE][tile.x // TILE_SIZE] = -1
+            # when the player touches ammo, ammo is added to the player
+            if tile_id == 69:
+                self.ammo += 2
+                self.level.grid[tile.y // TILE_SIZE][tile.x // TILE_SIZE] = -1
 
 
 
@@ -161,7 +198,7 @@ class Player:
                 if tile_id == 1:
                     self.level.grid = np.load("Game/level0.npy")
                     self.enemy.path = []
-                    self.enemy.rect = pygame.Rect(210, 768 - 64 - 90, 57, 63)
+                    self.enemy.rect = pygame.Rect(210, 768 - TILE_SIZE - 90, 57, 63)
                 elif tile_id == 2:
                     self.level.grid = np.load("Game/level2.npy")
                     self.enemy.path = []
@@ -172,7 +209,11 @@ class Player:
 
             if tile_id == 96:
                 self.diamonds += 1
-                self.level.grid[tile.y // 64][tile.x // 64] = -1
+                self.level.grid[tile.y // TILE_SIZE][tile.x // TILE_SIZE] = -1
+
+            if tile_id == 69:
+                self.ammo += 2
+                self.level.grid[tile.y // TILE_SIZE][tile.x // TILE_SIZE] = -1
 
         if self.can_jump and self.rect.y != self.ground:
             self.can_jump = False
@@ -210,7 +251,7 @@ class Enemy:
         self.red_image.fill((255, 0, 0), special_flags=pygame.BLEND_RGBA_MULT)
         self.flipped_red_image = pygame.transform.flip(self.red_image, True, False)
         self.speed = [0, 0]
-        self.rect = pygame.Rect(300, 768 - 64 - 90, 57, 63)
+        self.rect = pygame.Rect(300, 768 - TILE_SIZE - 90, 57, 63)
         self.can_jump = False
         self.level = level
         self.player = player
@@ -233,8 +274,8 @@ class Enemy:
 
         # # Draw path visualization
         # for step in self.path:
-        #     x, y = step[1] * 64, step[0] * 64
-        #     pygame.draw.rect(screen, (255, 0, 0), (x, y, 64, 64), 3)
+        #     x, y = step[1] * TILE_SIZE, step[0] * TILE_SIZE
+        #     pygame.draw.rect(screen, (255, 0, 0), (x, y, TILE_SIZE, TILE_SIZE), 3)
 
     def drawbox(self):
         return pygame.Rect(
@@ -273,7 +314,7 @@ class Enemy:
 
                 # Check if neighbor is within grid bounds
                 if 0 <= neighbor[0] < self.level.rows and 0 <= neighbor[1] < self.level.cols:
-                    tile_id = self.level.get_tile(neighbor[1] * 64, neighbor[0] * 64)
+                    tile_id = self.level.get_tile(neighbor[1] * TILE_SIZE, neighbor[0] * TILE_SIZE)
 
                     if tile_id == -1:  # Only passable tiles with ID -1
                         tentative_g_score = g_score[current] + 1
@@ -294,7 +335,7 @@ class Enemy:
         if self.path:
             # Move smoothly along the path toward the next tile
             next_step = self.path[0]
-            next_x, next_y = next_step[1] * 64 + 32, next_step[0] * 64 + 32
+            next_x, next_y = next_step[1] * TILE_SIZE + 32, next_step[0] * TILE_SIZE + 32
 
             if abs(next_x - self.rect.centerx) > 1:
                 self.speed[0] = 1.5 if next_x > self.rect.centerx else -1.5
@@ -318,14 +359,14 @@ class Enemy:
         # Handle collisions with player
         if self.rect.colliderect(player.rect):
             player.level.grid = np.load("Game/gameover.npy")
-            player.rect = pygame.Rect(0, 768 - 64 - 90, 57, 63)
+            player.rect = pygame.Rect(0, 768 - TILE_SIZE - 90, 57, 63)
             player.direction = "right"
 
 
 def main():
     pygame.init()
     level = Grid(bg_color=SKY_BLUE)
-    level.grid = np.load("Game/level1.npy")
+    level.grid = np.load("Game/level0.npy")
     screen = pygame.display.set_mode((level.width, level.height))
     clock = pygame.time.Clock()
     player = Player(level)
@@ -337,18 +378,19 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
                 break
-            if (
-                event.type == pygame.KEYDOWN
-                and event.key == pygame.K_UP
-                and player.can_jump
-            ):
-                player.speed[1] = -6.3
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_UP and player.can_jump:
+                if player.flashing_timer > 0:
+                    player.speed[1] = -8
+                    player.flashing_timer = 0  
+                else:
+                    player.speed[1] = -4.8
                 player.can_jump = False
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_SPACE:
+                if event.key == pygame.K_SPACE and player.ammo > 0:
                     bullet_speed = 5 if player.direction == "right" else -5
                     bullet = Bullet(player.rect.centerx, player.rect.centery, bullet_speed)
                     player.bullets.add(bullet)  # Add the bullet to the bullets group
+                    player.ammo -= 1  # Decrease ammo count      
             if player.enemy and player.enemy.health <= 0:
                 player.enemy = None
                 player.set_enemy(None)
@@ -361,6 +403,8 @@ def main():
             tile_id = player.level.grid[r+1][c]
             if tile_id == 95:
                 player.slip_time = 100
+            else:
+                player.slip_time = 0
 
         elif keys[pygame.K_LEFT]:
             player.direction = "left"
@@ -370,7 +414,8 @@ def main():
             tile_id = player.level.grid[r+1][c]
             if tile_id == 95:
                 player.slip_time = 100
-
+            else:
+                player.slip_time = 0
 
         else:
             if player.slip_time > 0:
@@ -379,6 +424,12 @@ def main():
             else:
                 player.speed[0] = 0
 
+        # if down key is pressed, crouch
+        if keys[pygame.K_DOWN]:
+            player.crouching = True
+        else:
+            player.crouching = False
+            player.flashing_timer -= 1
 
 
         level.draw(screen)
@@ -400,6 +451,11 @@ def main():
         diamond_text = font.render(f"Diamonds: {player.diamonds}", True, (0, 0, 0))  # White text
         text_rect = diamond_text.get_rect(topright=(level.width - 10, 10))  # Position in the upper-right corner
         screen.blit(diamond_text, text_rect)
+
+        # Render the ammo count text
+        ammo_text = font.render(f"Ammo: {player.ammo}", True, (0, 0, 0))  # White text
+        ammo_rect = ammo_text.get_rect(topleft=(10, 10))  # Position in the upper-left corner
+        screen.blit(ammo_text, ammo_rect)
         player.move()
         if player.enemy:
             player.enemy.move(player)

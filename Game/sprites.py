@@ -20,9 +20,11 @@ def load_tiles(filename, grid_width, grid_height, gap_size):
             y = i * (sprite_height + gap_size)
             sprite_rect = pygame.Rect(x, y, sprite_width, sprite_height)
             sprites[i * grid_width + j] = image.subsurface(sprite_rect)
+            # shrink sprites by half
+            sprites[i * grid_width + j] = pygame.transform.scale(sprites[i * grid_width + j], (sprite_width // 2, sprite_height // 2))
 
     return sprites
 
 
 TILES = load_tiles("Game/tiles.png", 11, 10, 8)
-TILE_SIZE = 64
+TILE_SIZE = 32

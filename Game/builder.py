@@ -30,8 +30,9 @@ def main(filename):
                 running = False
             elif mode == PICK_TILE:
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    print(screen.get_at(event.pos))
+                    print(event.pos)
                     r, c = level.get_tile_index(event.pos)
+                    print(r, c)
                     current_tile = picker.grid[r][c]
                     mode = DRAW_LEVEL
             elif mode == DRAW_LEVEL:
