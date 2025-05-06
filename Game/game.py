@@ -5,6 +5,17 @@ import heapq
 from grid import Grid, SKY_BLUE
 from sprites import TILES, TILE_SIZE
 
+pygame.mixer.init()
+loot_collect = pygame.mixer.Sound("Game/loot_collect.wav")
+gun_shot = pygame.mixer.Sound("Game/gun_shot.wav")
+death_sound = pygame.mixer.Sound("Game/death_sound.mp3")
+whoosh = pygame.mixer.Sound("Game/whoosh.mp3")
+charge_up_loop = pygame.mixer.Sound("Game/charge_up_loop.wav")
+gun_shot.set_volume(0.5)  # Set volume for gunshot sound
+loot_collect.set_volume(0.1)  # Set volume for loot collect sound
+whoosh.set_volume(0.8)  # Set volume for whoosh sound
+charge_up_loop.set_volume(0.1)  # Set volume for charge-up sound
+
 def detect_collisions(rect, objects):
     collisions = []
     for obj in objects:
@@ -53,6 +64,11 @@ class Player:
         self.crouching = False
         self.crouch_timer = 8
         self.flashing_timer = 0
+        self.last_right_press = 0
+        self.last_left_press = 0
+        self.double_tap_timer = 0
+        self.boosted = False
+        self.can_dash = True
     def set_enemy(self, enemy):
         self.enemy = enemy
 
@@ -88,6 +104,7 @@ class Player:
                     self.crouch_timer -= 1
                     if self.crouch_timer <= 0:
                         self.flashing_timer = 90
+                        charge_up_loop.play(-1)  # Play charge-up sound in a loop
 
         else:
             self.crouch_frame = 0
@@ -171,10 +188,12 @@ class Player:
             if tile_id == 96:
                 self.diamonds += 1
                 self.level.grid[tile.y // TILE_SIZE][tile.x // TILE_SIZE] = -1
+                loot_collect.play()  # Play sound effect when collecting diamonds
             # when the player touches ammo, ammo is added to the player
             if tile_id == 69:
                 self.ammo += 2
                 self.level.grid[tile.y // TILE_SIZE][tile.x // TILE_SIZE] = -1
+                loot_collect.play()  # Play sound effect when collecting ammo
 
 
 
@@ -186,6 +205,7 @@ class Player:
                 self.rect.bottom = tile.top
                 self.speed[1] = 0
                 self.can_jump = True
+                self.can_dash = True
                 self.ground = self.rect.y
             if self.speed[1] < 0:
                 self.rect.top = tile.bottom
@@ -381,7 +401,8 @@ def main():
             if event.type == pygame.KEYDOWN and event.key == pygame.K_UP and player.can_jump:
                 if player.flashing_timer > 0:
                     player.speed[1] = -8
-                    player.flashing_timer = 0  
+                    player.flashing_timer = 0 
+                    charge_up_loop.stop() 
                 else:
                     player.speed[1] = -4.8
                 player.can_jump = False
@@ -390,28 +411,60 @@ def main():
                     bullet_speed = 5 if player.direction == "right" else -5
                     bullet = Bullet(player.rect.centerx, player.rect.centery, bullet_speed)
                     player.bullets.add(bullet)  # Add the bullet to the bullets group
-                    player.ammo -= 1  # Decrease ammo count      
+                    player.ammo -= 1  # Decrease ammo count 
+                    gun_shot.play()  # Play gunshot sound     
             if player.enemy and player.enemy.health <= 0:
+                death_sound.play()
                 player.enemy = None
                 player.set_enemy(None)
                 break
+            if event.type == pygame.KEYUP:
+                if event.key == pygame.K_RIGHT:
+                    player.last_right_press = pygame.time.get_ticks()
+                    player.boosted = False
+                if event.key == pygame.K_LEFT:
+                    player.last_left_press = pygame.time.get_ticks()
+                    player.boosted = False
         keys = pygame.key.get_pressed()
         if keys[pygame.K_RIGHT]:
+            current_time = pygame.time.get_ticks()
+            if current_time - player.last_right_press < 300 and player.can_jump == False and player.can_dash:  # Double-tap detected
+                player.boosted = True
+                player.speed[0] = 10.8
+                player.can_dash = False
+                #play only the first second of whoosh
+                whoosh.play()
+
             player.direction = "right"
-            player.speed[0] = 2.7
+            if player.boosted and player.speed[0] > 2.7:
+                player.speed[0] *= 0.9
+                player.speed[1] = 0
+            else:
+                player.boosted = False
+                player.speed[0] = 2.7
             r, c = player.level.get_tile_index((player.rect.x, player.rect.y))
-            tile_id = player.level.grid[r+1][c]
+            tile_id = player.level.grid[r + 1][c]
             if tile_id == 95:
                 player.slip_time = 100
             else:
                 player.slip_time = 0
 
         elif keys[pygame.K_LEFT]:
+            current_time = pygame.time.get_ticks()
+            if current_time - player.last_left_press < 300 and player.can_jump == False and player.can_dash:  # Double-tap detected
+                player.boosted = True
+                player.speed[0] = -10.8
+                player.can_dash = False
+                whoosh.play()  # Play whoosh sound
+            if player.boosted and player.speed[0] < -2.7:
+                player.speed[0] *= 0.9
+                player.speed[1] = 0
+            else:
+                player.boosted = False
+                player.speed[0] = -2.7
             player.direction = "left"
-            player.speed[0] = -2.7
-            # get the id of the tile directly below the player
             r, c = player.level.get_tile_index((player.rect.x, player.rect.y))
-            tile_id = player.level.grid[r+1][c]
+            tile_id = player.level.grid[r + 1][c]
             if tile_id == 95:
                 player.slip_time = 100
             else:
@@ -424,12 +477,18 @@ def main():
             else:
                 player.speed[0] = 0
 
+
+                
+            
         # if down key is pressed, crouch
         if keys[pygame.K_DOWN]:
             player.crouching = True
         else:
             player.crouching = False
             player.flashing_timer -= 1
+
+
+        
 
 
         level.draw(screen)
@@ -445,6 +504,7 @@ def main():
                 player.enemy.health -= 1  # Decrease enemy health
                 player.enemy.hit_timer = pygame.time.get_ticks()
                 bullet.kill()  # Remove the bullet
+
 
 
                 # Render the diamond count text
