@@ -104,6 +104,7 @@ class Player:
                     self.crouch_timer -= 1
                     if self.crouch_timer <= 0:
                         self.flashing_timer = 90
+                        charge_up_loop.stop()  # Stop charge-up sound
                         charge_up_loop.play(-1)  # Play charge-up sound in a loop
 
         else:
@@ -117,6 +118,8 @@ class Player:
         if self.clock % 6 == 0 and self.flashing_timer > 0:
             image.fill((255, 255, 255, 10), special_flags=pygame.BLEND_RGBA_MULT)
             flipped_image.fill((255, 255, 255, 10), special_flags=pygame.BLEND_RGBA_MULT)
+        if self.flashing_timer <= 0:
+            charge_up_loop.stop()
             
 
 
